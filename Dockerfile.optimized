@@ -1,0 +1,88 @@
+# 多阶段构建 - 构建阶段
+FROM ubuntu:jammy AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# 安装构建依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# 克隆仓库
+RUN git clone -b master https://github.com/TeamPGM/PagerMaid-Pyro.git /pagermaid/workdir
+
+# 安装Python依赖
+WORKDIR /pagermaid/workdir
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 运行阶段 - 使用更小的基础镜像
+FROM python:3.11-slim
+
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=zh_CN.UTF-8 \
+    SHELL=/bin/bash \
+    PS1="\u@\h:\w \$ " \
+    PAGERMAID_DIR=/pagermaid \
+    DEBIAN_FRONTEND=noninteractive
+
+# 安装运行时依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-chi-sim \
+    language-pack-zh-hans \
+    sudo \
+    openssl \
+    curl \
+    wget \
+    neofetch \
+    imagemagick \
+    ffmpeg \
+    fortune-mod \
+    figlet \
+    libmagic1 \
+    libzbar0 \
+    iputils-ping \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置时区
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone
+
+# 添加用户
+RUN echo "pagermaid ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/pagermaid \
+    && useradd pagermaid -r -m -d /pagermaid -s /bin/bash \
+    && usermod -aG sudo,users pagermaid
+
+# 从构建阶段复制Python环境
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# 复制应用代码
+COPY --from=builder /pagermaid/workdir /pagermaid/workdir
+
+# 设置工作目录
+WORKDIR /pagermaid/workdir
+
+# 创建数据目录
+RUN mkdir -p /pagermaid/workdir/data \
+    && chown -R pagermaid:pagermaid /pagermaid
+
+# 切换到非root用户
+USER pagermaid
+
+# 暴露端口
+EXPOSE 8080
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/pagermaid/api/status || exit 1
+
+# 启动命令
+CMD ["python", "-m", "pagermaid"]

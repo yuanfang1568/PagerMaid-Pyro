@@ -44,7 +44,8 @@ async def get_bot_uptime() -> str:
 async def get_status() -> Status:
     uptime = await get_bot_uptime()
     psutil.cpu_percent()
-    await asyncio.sleep(0.1)
+    # 减少延迟时间以提高响应速度
+    await asyncio.sleep(0.05)
     cpu_percent = psutil.cpu_percent()
     ram_stat = psutil.virtual_memory()
     swap_stat = psutil.swap_memory()
